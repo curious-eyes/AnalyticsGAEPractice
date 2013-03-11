@@ -4,8 +4,11 @@ AnalyticsGAEPractice
 GoogleAppEngine Application
 
 https://developers.google.com/analytics/solutions/articles/hello-analytics-api#environment
+
 を参考に、
+
 /client_secrets.json
+
 が必要です。
 
     {
