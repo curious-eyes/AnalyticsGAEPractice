@@ -30,10 +30,10 @@ import pickle
 import webapp2
 
 from apiclient.discovery import build
+from apiclient.errors import HttpError
 from oauth2client.appengine import oauth2decorator_from_clientsecrets
 from oauth2client.client import AccessTokenRefreshError
 from google.appengine.api import memcache
-
 
 # CLIENT_SECRETS, name of a file containing the OAuth 2.0 information for this
 # application, including client_id and client_secret.
@@ -61,6 +61,7 @@ href="https://code.google.com/apis/console">APIs Console</a>.
 http = httplib2.Http(memcache)
 service = build("analytics", "v3", http=http)
 
+logger = logging.getLogger(__name__)
 
 # Set up an OAuth2Decorator object to be used for authentication.  Add one or
 # more of the following scopes in the scopes parameter below. PLEASE ONLY ADD
@@ -78,35 +79,78 @@ class MainHandler(webapp2.RequestHandler):
 
   @decorator.oauth_required
   def get(self):
-    self.response.out.write("""<html><body>
 
-  <p>Congratulations, you are up and running! At this point you will want to add
-  calls into the Google Analytics API to the <code>main.py</code> file. Please read the
-  <code>main.py</code> file carefully, it contains detailed information in
-  the comments.  For more information on the Google Analytics API Python library
-  surface you can visit: </p>
+    try:
+      # Step 2. Get the user's first profile ID.
+      profile_id = get_first_profile_id(service)
+      logger.info('get profile_id')
 
- <blockquote>
-   <p>
-   <a href="https://google-api-client-libraries.appspot.com/documentation/analytics/v3/python/latest/">
-   https://google-api-client-libraries.appspot.com/documentation/analytics/v3/python/latest/
-   </a>
-   </p>
- </blockquote>
+      if profile_id:
+        # Step 3. Query the Core Reporting API.
+        results = get_results(service, profile_id)
 
-  <p>
-  Also check out the <a
-    href="https://developers.google.com/api-client-library/python/start/get_started">
-    Python Client Library documentation</a>, and get more information on the
-  Google Analytics API at:
-  </p>
+        # Step 4. Output the results.
+        print_results(results)
 
-  <blockquote>
-    <p>
-    <a href="https://developers.google.com/analytics/">https://developers.google.com/analytics/</a>
-    </p>
-  </blockquote>
-""")
+    except TypeError, error:
+      # Handle errors in constructing a query.
+      print ('There was an error in constructing your query : %s' % error)
+
+    except HttpError, error:
+      # Handle API errors.
+      print ('Arg, there was an API error : %s : %s' %
+              (error.resp.status, error._get_reason()))
+
+    except AccessTokenRefreshError:
+      # Handle Auth errors.
+      print ('The credentials have been revoked or expired, please re-run '
+             'the application to re-authorize')
+
+
+def get_first_profile_id(service):
+  # Get a list of all Google Analytics accounts for this user
+  accounts = service.management().accounts().list().execute()
+
+  if accounts.get('items'):
+    # Get the first Google Analytics account
+    firstAccountId = accounts.get('items')[0].get('id')
+
+    # Get a list of all the Web Properties for the first account
+    webproperties = service.management().webproperties().list(accountId=firstAccountId).execute()
+
+    if webproperties.get('items'):
+      # Get the first Web Property ID
+      firstWebpropertyId = webproperties.get('items')[0].get('id')
+
+      # Get a list of all Profiles for the first Web Property of the first Account
+      profiles = service.management().profiles().list(
+          accountId=firstAccountId,
+          webPropertyId=firstWebpropertyId).execute()
+
+      if profiles.get('items'):
+        # return the first Profile ID
+        return profiles.get('items')[0].get('id')
+
+  return None
+
+
+def get_results(service, profile_id):
+  # Use the Analytics Service Object to query the Core Reporting API
+  return service.data().ga().get(
+      ids='ga:' + profile_id,
+      start_date='2013-03-03',
+      end_date='2013-03-03',
+      metrics='ga:visits').execute()
+
+def print_results(results):
+  # Print data nicely for the user.
+  if results:
+    print 'First Profile: %s' % results.get('profileInfo').get('profileName')
+    print 'Total Visits: %s' % results.get('rows')[0][0]
+
+  else:
+    print 'No results found'
+
 
 app = webapp2.WSGIApplication(
       [
