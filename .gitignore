@@ -1,3 +1,5 @@
 # .gitignore
 client_secrets.json
+client_secrets_local.json
+client_secrets_server.json
 *.py[co]
